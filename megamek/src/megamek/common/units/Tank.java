@@ -1187,14 +1187,24 @@ public class Tank extends Entity {
                     rv.setMotiveMod(motiveMod);
                     break;
                 case 5:
-                    if (bSide) {
-                        rv = new HitData(LOC_FRONT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
-                    } else if (bRear) {
-                        rv = new HitData(LOC_LEFT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                    if (gameOptions().booleanOption(OptionsConstants.ADVANCED_COMBAT_KIND_VEHICLE_EFFECTIVE)) {
+                        if (bSide) {
+                            rv = new HitData(LOC_FRONT);
+                        } else if (bRear) {
+                            rv = new HitData(LOC_LEFT);
+                        } else {
+                            rv = new HitData(LOC_RIGHT);
+                        }
                     } else {
-                        rv = new HitData(LOC_LEFT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                        if (bSide) {
+                            rv = new HitData(LOC_FRONT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                        } else if (bRear) {
+                            rv = new HitData(LOC_LEFT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                        } else {
+                            rv = new HitData(LOC_RIGHT, false, HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                        }
+                        rv.setMotiveMod(motiveMod);
                     }
-                    rv.setMotiveMod(motiveMod);
                     break;
                 case 6:
                 case 7:
