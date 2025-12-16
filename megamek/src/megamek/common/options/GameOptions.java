@@ -202,6 +202,7 @@ public class GameOptions extends BasicGameOptions {
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_AMMUNITION, false);
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_WOODS_COVER, false);
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_VEHICLE_EFFECTIVE, false);
+        addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_KIND_VEHICLE_EFFECTIVE, false);    //Luke option
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_VEHICLE_ARCS, false);
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_VTOL_ATTACKS, false);
         addOption(advancedCombat, OptionsConstants.ADVANCED_COMBAT_TAC_OPS_ADVANCED_MEK_HIT_LOCATIONS, false);
