@@ -173,6 +173,10 @@ public class LargeSupportTank extends SupportTank {
                     rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
                     rv.setMotiveMod(motiveMod);
                     break;
+					/* RAW effect
+                    rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                    rv.setMotiveMod(motiveMod);
+                    break; */
                 case 5:
                     if (bRear || !(bSide || bRearSide)) {
                         rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
