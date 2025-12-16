@@ -170,8 +170,11 @@ public class LargeSupportTank extends SupportTank {
                     rv.setMotiveMod(motiveMod);
                     break;
                 case 4:
-                    rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
-                    rv.setMotiveMod(motiveMod);
+                    if (!gameOptions()
+                          .booleanOption(OptionsConstants.ADVANCED_COMBAT_KIND_VEHICLE_EFFECTIVE)) {
+                        rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
+                        rv.setMotiveMod(motiveMod);
+                    }
                     break;
 					/* RAW effect
                     rv.setEffect(HitData.EFFECT_VEHICLE_MOVE_DAMAGED);
