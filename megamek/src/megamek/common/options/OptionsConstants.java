@@ -424,6 +424,7 @@ public class OptionsConstants {
     public static final String ADVANCED_COMBAT_TAC_OPS_AMMUNITION = "tacops_ammunition";
     public static final String ADVANCED_COMBAT_TAC_OPS_WOODS_COVER = "tacops_woods_cover";
     public static final String ADVANCED_COMBAT_TAC_OPS_VEHICLE_EFFECTIVE = "tacops_vehicle_effective";
+    public static final String ADVANCED_COMBAT_KIND_VEHICLE_EFFECTIVE = "kind_vehicle_effective";    //Luke option
     public static final String ADVANCED_COMBAT_TAC_OPS_VEHICLE_ARCS = "tacops_vehicle_arcs";
 
     public static final String ADVANCED_COMBAT_TAC_OPS_VTOL_ATTACKS = "tacops_vtol_attacks";
