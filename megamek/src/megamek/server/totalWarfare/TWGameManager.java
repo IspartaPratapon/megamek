@@ -75,6 +75,7 @@ import megamek.common.equipment.AmmoType.AmmoTypeEnum;
 import megamek.common.equipment.AmmoType.Munitions;
 import megamek.common.equipment.enums.BombType;
 import megamek.common.equipment.enums.BombType.BombTypeEnum;
+import megamek.common.equipment.enums.MiscTypeFlag;
 import megamek.common.exceptions.LocationFullException;
 import megamek.common.force.Force;
 import megamek.common.force.Forces;
@@ -832,6 +833,9 @@ public class TWGameManager extends AbstractGameManager {
                     break;
                 case ENTITY_VARIABLE_RANGE_MODE_CHANGE:
                     receiveEntityVariableRangeModeChange(packet, connId);
+                    break;
+                case ENTITY_ABANDON_ANNOUNCE:
+                    receiveEntityAbandonAnnounce(packet, connId);
                     break;
                 case ENTITY_MOUNTED_FACING_CHANGE:
                     receiveEntityMountedFacingChange(packet, connId);
@@ -3354,6 +3358,9 @@ public class TWGameManager extends AbstractGameManager {
                 // -> sit on the roof
                 unit.setElevation(hex.terrainLevel(Terrains.BLDG_ELEV));
             } else {
+                // Check if infantry can use glider wings to descend (IO p.85)
+                boolean canGlide = unit.isInfantry() &&
+                      ((Infantry) unit).hasAbility(OptionsConstants.MD_PL_GLIDER);
                 while (elevation >= -hex.depth()) {
                     if (unit.isElevationValid(elevation, hex)) {
                         unit.setElevation(elevation);
@@ -3362,8 +3369,8 @@ public class TWGameManager extends AbstractGameManager {
                     elevation--;
                     // If unit is landed, the while loop breaks before here
                     // And unit.moved will be MOVE_NONE
-                    // If we can jump, use jump
-                    if (unit.getJumpMP() > 0) {
+                    // If we can jump or glide, use jump
+                    if (unit.getJumpMP() > 0 || canGlide) {
                         unit.moved = EntityMovementType.MOVE_JUMP;
                     } else { // Otherwise, use walk trigger check for ziplines
                         unit.moved = EntityMovementType.MOVE_WALK;
@@ -3397,7 +3404,10 @@ public class TWGameManager extends AbstractGameManager {
         }
 
         // Check for zip lines PSR -- MOVE_WALK implies ziplines
-        if (unit.moved == EntityMovementType.MOVE_WALK) {
+        // Skip zipline PSR if infantry has glider wings (safer option, IO p.85)
+        boolean hasGliderWings = (unit instanceof Infantry) &&
+              ((Infantry) unit).hasAbility(OptionsConstants.MD_PL_GLIDER);
+        if (unit.moved == EntityMovementType.MOVE_WALK && !hasGliderWings) {
             if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_TAC_OPS_ZIPLINES) &&
                   (unit instanceof Infantry) &&
                   !((Infantry) unit).isMechanized()) {
@@ -13414,8 +13424,8 @@ public class TWGameManager extends AbstractGameManager {
         addReport(r);
 
         // Flail/Wrecking Ball auto misses on a 2 and hits themselves.
-        if ((caa.getClub().getType().hasSubType(MiscType.S_FLAIL) ||
-              caa.getClub().getType().hasSubType(MiscType.S_WRECKING_BALL)) && (rollValue == 2)) {
+        if ((caa.getClub().getType().hasAnyFlag(MiscTypeFlag.S_FLAIL, MiscTypeFlag.S_WRECKING_BALL)) && (rollValue
+              == 2)) {
             // miss
             r = new Report(4025);
             r.subject = ae.getId();
@@ -13449,7 +13459,7 @@ public class TWGameManager extends AbstractGameManager {
         }
 
         // Need to compute 2d6 damage. and add +3 heat build up.
-        if (caa.getClub().getType().hasSubType(MiscType.S_BUZZSAW)) {
+        if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_BUZZSAW)) {
             damage = Compute.d6(2);
             ae.heatBuildup += 3;
 
@@ -13460,8 +13470,8 @@ public class TWGameManager extends AbstractGameManager {
                 for (Mounted<?> eq : ae.getWeaponList()) {
                     if ((eq.getLocation() == club.getLocation()) &&
                           (eq.getType() instanceof MiscType) &&
-                          eq.getType().hasFlag(MiscType.F_CLUB) &&
-                          eq.getType().hasSubType(MiscType.S_BUZZSAW)) {
+                          eq.getType().hasFlag(MiscTypeFlag.F_CLUB) &&
+                          eq.getType().hasFlag(MiscTypeFlag.S_BUZZSAW)) {
                         eq.setHit(true);
                         break;
                     }
@@ -13481,7 +13491,7 @@ public class TWGameManager extends AbstractGameManager {
             r.subject = ae.getId();
             r.add(toHit.getDesc());
             addReport(r);
-            if (caa.getClub().getType().hasSubType(MiscType.S_MACE)) {
+            if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_MACE)) {
                 if (ae instanceof LandAirMek && ae.isAirborneVTOLorWIGE()) {
                     game.addControlRoll(new PilotingRollData(ae.getId(), 0, "missed a mace attack"));
                 } else {
@@ -13490,7 +13500,7 @@ public class TWGameManager extends AbstractGameManager {
             }
 
             if (caa.isZweihandering()) {
-                if (caa.getClub().getType().hasSubType(MiscType.S_CLUB)) {
+                if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_CLUB)) {
                     applyZweihanderSelfDamage(ae, true, Mek.LOC_RIGHT_ARM, Mek.LOC_LEFT_ARM);
                 } else {
                     applyZweihanderSelfDamage(ae, true, caa.getClub().getLocation());
@@ -13536,7 +13546,7 @@ public class TWGameManager extends AbstractGameManager {
 
             // PLAYTEST3 no more missed maces
             if (!game.getOptions().booleanOption(OptionsConstants.PLAYTEST_3)) {
-                if (caa.getClub().getType().hasSubType(MiscType.S_MACE)) {
+                if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_MACE)) {
                     if (ae instanceof LandAirMek && ae.isAirborneVTOLorWIGE()) {
                         game.addControlRoll(new PilotingRollData(ae.getId(), 2, "missed a mace attack"));
                     } else {
@@ -13558,7 +13568,7 @@ public class TWGameManager extends AbstractGameManager {
             }
 
             if (caa.isZweihandering()) {
-                if (caa.getClub().getType().hasSubType(MiscType.S_CLUB)) {
+                if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_CLUB)) {
                     applyZweihanderSelfDamage(ae, true, Mek.LOC_RIGHT_ARM, Mek.LOC_LEFT_ARM);
                 } else {
                     applyZweihanderSelfDamage(ae, true, caa.getClub().getLocation());
@@ -13584,7 +13594,7 @@ public class TWGameManager extends AbstractGameManager {
             addReport(damageInfantryIn(bldg, damage, target.getPosition()));
 
             if (caa.isZweihandering()) {
-                if (caa.getClub().getType().hasSubType(MiscType.S_CLUB)) {
+                if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_CLUB)) {
                     applyZweihanderSelfDamage(ae, false, Mek.LOC_RIGHT_ARM, Mek.LOC_LEFT_ARM);
 
                     // the club breaks
@@ -13675,7 +13685,7 @@ public class TWGameManager extends AbstractGameManager {
             // On a roll of 10+ a lance hitting a mek/Vehicle can cause 1 point of
             // internal damage
             // PLAYTEST3 Ferro-lam is no longer immune to AP. ABA/APA is.
-            if (caa.getClub().getType().hasSubType(MiscType.S_LANCE) &&
+            if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_LANCE) &&
                   (te.getArmor(hit) > 0) &&
                   (te.getArmorType(hit.getLocation()) != EquipmentType.T_ARMOR_HARDENED)) {
                 // PLAYTEST3 Ferro_Lam does not block the lance in playtest3, but APA/ABA does
@@ -13708,7 +13718,7 @@ public class TWGameManager extends AbstractGameManager {
             }
 
             // TODO : Verify this is correct according to latest rules
-            if (caa.getClub().getType().hasSubType(MiscType.S_WRECKING_BALL) &&
+            if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_WRECKING_BALL) &&
                   (ae instanceof SupportTank) &&
                   (te instanceof Mek)) {
                 // forces a PSR like a charge
@@ -13723,7 +13733,7 @@ public class TWGameManager extends AbstractGameManager {
             // implementation assumes that in order to do so the limb must still
             // have some structure left, so if the whip hits and destroys a
             // location in the same attack no special effects take place.
-            if (caa.getClub().getType().hasSubType(MiscType.S_CHAIN_WHIP) &&
+            if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_CHAIN_WHIP) &&
                   ((te instanceof Mek) || (te instanceof ProtoMek))) {
                 addNewLines();
 
@@ -13811,7 +13821,7 @@ public class TWGameManager extends AbstractGameManager {
         addNewLines();
 
         if (caa.isZweihandering()) {
-            if (caa.getClub().getType().hasSubType(MiscType.S_CLUB)) {
+            if (caa.getClub().getType().hasFlag(MiscTypeFlag.S_CLUB)) {
                 applyZweihanderSelfDamage(ae, false, Mek.LOC_RIGHT_ARM, Mek.LOC_LEFT_ARM);
             } else {
                 applyZweihanderSelfDamage(ae, false, caa.getClub().getLocation());
@@ -13821,8 +13831,9 @@ public class TWGameManager extends AbstractGameManager {
         // If the attacker is Zweihandering with an improvised club, it will break on
         // the attack.
         // Otherwise, only a tree club will break on the attack
-        if ((caa.isZweihandering() && caa.getClub().getType().hasSubType(MiscType.S_CLUB)) ||
-              caa.getClub().getType().hasSubType(MiscType.S_TREE_CLUB)) {
+        if ((caa.isZweihandering() && caa.getClub().getType().hasFlag(MiscTypeFlag.S_CLUB)) || caa.getClub()
+              .getType()
+              .hasFlag(MiscTypeFlag.S_TREE_CLUB)) {
             // the club breaks
             r = new Report(4150);
             r.subject = ae.getId();
@@ -15242,7 +15253,7 @@ public class TWGameManager extends AbstractGameManager {
         if (ae instanceof Mek) {
             int spikeDamage = 0;
             for (int loc = 0; loc < ae.locations(); loc++) {
-                if (((Mek) ae).locationIsTorso(loc) && ae.hasWorkingMisc(MiscType.F_SPIKES, -1, loc)) {
+                if (((Mek) ae).locationIsTorso(loc) && ae.hasWorkingMisc(MiscType.F_SPIKES, null, loc)) {
                     spikeDamage += 2;
                 }
             }
@@ -15330,7 +15341,7 @@ public class TWGameManager extends AbstractGameManager {
                     boolean hasLance = false;
                     boolean secondLance = false;
                     for (MiscMounted getClub : ae.getClubs()) {
-                        if (getClub.getType().hasSubType(MiscType.S_LANCE) &&
+                        if (getClub.getType().hasFlag(MiscTypeFlag.S_LANCE) &&
                               (te.getArmor(hit) > 0) &&
                               (te.getArmorType(hit.getLocation()) != EquipmentType.T_ARMOR_HARDENED) &&
                               (te.getArmorType(hit.getLocation()) != EquipmentType.T_ARMOR_ANTI_PENETRATIVE_ABLATION)) {
@@ -15446,7 +15457,7 @@ public class TWGameManager extends AbstractGameManager {
      */
     private int checkForSpikes(Entity target, int targetLocation, int damage, Entity attacker, int attackerLocation,
           int attackerLocation2) {
-        if (target.hasWorkingMisc(MiscType.F_SPIKES, -1, targetLocation)) {
+        if (target.hasWorkingMisc(MiscType.F_SPIKES, null, targetLocation)) {
             Report r;
             if (damage == 0) {
                 // Only show damage to attacker (push attack)
@@ -15465,7 +15476,7 @@ public class TWGameManager extends AbstractGameManager {
             // a push
             if (attackerLocation != Entity.LOC_NONE) {
                 // Spikes also protect from retaliatory spike damage
-                if (attacker.hasWorkingMisc(MiscType.F_SPIKES, -1, attackerLocation)) {
+                if (attacker.hasWorkingMisc(MiscType.F_SPIKES, null, attackerLocation)) {
                     r = new Report(4332);
                     r.indent(2);
                     r.subject = attacker.getId();
@@ -17591,6 +17602,9 @@ public class TWGameManager extends AbstractGameManager {
                 if (crewPos >= 0 && (crewPos != pos || crew.isDead(crewPos))) {
                     continue;
                 }
+                if (crew.isMissing(pos)) {
+                    continue;
+                }
                 boolean wasPilot = crew.getCurrentPilotIndex() == pos;
                 boolean wasGunner = crew.getCurrentGunnerIndex() == pos;
                 crew.setHits(crew.getHits(pos) + damage, pos);
@@ -19681,7 +19695,7 @@ public class TWGameManager extends AbstractGameManager {
                 if (!engineExploded && (numEngineHits >= hitsToDestroy)) {
                     // third engine hit
                     reports.addAll(destroyEntity(en, "engine destruction"));
-                    if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_AUTO_ABANDON_UNIT)) {
+                    if (shouldAutoEjectOnDestruction()) {
                         reports.addAll(abandonEntity(en));
                     }
                     en.setSelfDestructing(false);
@@ -22685,7 +22699,7 @@ public class TWGameManager extends AbstractGameManager {
             // Check location for engine/cockpit breach and report accordingly
             if (loc == Mek.LOC_CENTER_TORSO) {
                 vDesc.addAll(destroyEntity(entity, "hull breach"));
-                if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_AUTO_ABANDON_UNIT)) {
+                if (shouldAutoEjectOnDestruction()) {
                     vDesc.addAll(abandonEntity(entity));
                 }
             }
@@ -22718,7 +22732,7 @@ public class TWGameManager extends AbstractGameManager {
                   entity.getHitCriticalSlots(CriticalSlot.TYPE_SYSTEM, Mek.SYSTEM_ENGINE, Mek.LOC_RIGHT_TORSO)) >=
                   hitsToDestroy) {
                 vDesc.addAll(destroyEntity(entity, "engine destruction"));
-                if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_AUTO_ABANDON_UNIT)) {
+                if (shouldAutoEjectOnDestruction()) {
                     vDesc.addAll(abandonEntity(entity));
                 }
             }
@@ -23729,6 +23743,10 @@ public class TWGameManager extends AbstractGameManager {
             if (damageHeight < 2) {
                 damage = 0;
             }
+            // Prosthetic glider wings protect conventional infantry from fall damage (IO p.85)
+            if (!(entity instanceof BattleArmor) && ((Infantry) entity).isProtectedFromFallDamage()) {
+                damage = 0;
+            }
             if (!(entity instanceof BattleArmor)) {
                 int dice = 3;
                 if (entity.getMovementMode() == EntityMovementMode.INF_MOTORIZED) {
@@ -24417,6 +24435,15 @@ public class TWGameManager extends AbstractGameManager {
     boolean doBlind() {
         return game.getOptions().booleanOption(OptionsConstants.ADVANCED_DOUBLE_BLIND) &&
               game.getPhase().isDuringOrAfter(GamePhase.DEPLOYMENT);
+    }
+
+    /**
+     * @return whether crews should be automatically created when their unit is destroyed. True if either "Ejected Crews
+     *       Flee" or legacy "Auto Abandon Unit" option is enabled.
+     */
+    boolean shouldAutoEjectOnDestruction() {
+        return game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_EJECTED_PILOTS_FLEE)
+              || game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_AUTO_ABANDON_UNIT);
     }
 
     private boolean suppressBlindBV() {
@@ -25629,6 +25656,55 @@ public class TWGameManager extends AbstractGameManager {
             entityUpdate(entityId);
         } catch (Exception ex) {
             LOGGER.error("Error processing Variable Range Targeting mode change", ex);
+        }
+    }
+
+    /**
+     * Receives and processes a unit abandonment announcement packet. For Meks (TacOps:AR p.165): Must be prone and
+     * shutdown. For Vehicles (TacOps): Can be abandoned anytime.
+     *
+     * @param packet    the packet to be processed
+     * @param connIndex the id for connection that received the packet
+     */
+    private void receiveEntityAbandonAnnounce(Packet packet, int connIndex) {
+        try {
+            int entityId = packet.getIntValue(0);
+            Entity entity = game.getEntity(entityId);
+
+            if (entity == null || entity.getOwner() != game.getPlayer(connIndex)) {
+                LOGGER.debug("Abandon announce rejected: entity null or wrong owner");
+                return;
+            }
+
+            // Check if this is a Mek that can abandon
+            if (entity instanceof Mek mek) {
+                if (!mek.canAbandon()) {
+                    LOGGER.debug("Abandon announce rejected: Mek cannot abandon");
+                    return;
+                }
+                Vector<Report> reports = announceUnitAbandonment(entity);
+                for (Report report : reports) {
+                    addReport(report);
+                }
+                return;
+            }
+
+            // Check if this is a Tank that can abandon
+            if (entity instanceof Tank tank) {
+                if (!tank.canAbandon()) {
+                    LOGGER.debug("Abandon announce rejected: Tank cannot abandon");
+                    return;
+                }
+                Vector<Report> reports = announceUnitAbandonment(entity);
+                for (Report report : reports) {
+                    addReport(report);
+                }
+                return;
+            }
+
+            LOGGER.debug("Abandon announce rejected: entity is not a Mek or Tank");
+        } catch (Exception ex) {
+            LOGGER.error("Error processing unit abandonment announcement", ex);
         }
     }
 
@@ -27504,16 +27580,16 @@ public class TWGameManager extends AbstractGameManager {
                   caa.isZweihandering());
             if (caa.getTargetType() == Targetable.TYPE_BUILDING) {
                 EquipmentType clubType = caa.getClub().getType();
-                if (clubType.hasSubType(MiscType.S_BACKHOE) ||
-                      clubType.hasSubType(MiscType.S_CHAINSAW) ||
-                      clubType.hasSubType(MiscType.S_MINING_DRILL) ||
-                      clubType.hasSubType(MiscType.S_PILE_DRIVER)) {
+                if (clubType.hasAnyFlag(MiscTypeFlag.S_BACKHOE,
+                      MiscTypeFlag.S_CHAINSAW,
+                      MiscTypeFlag.S_MINING_DRILL,
+                      MiscTypeFlag.S_PILE_DRIVER)) {
                     damage += Compute.d6(1);
-                } else if (clubType.hasSubType(MiscType.S_DUAL_SAW)) {
+                } else if (clubType.hasFlag(MiscTypeFlag.S_DUAL_SAW)) {
                     damage += Compute.d6(2);
-                } else if (clubType.hasSubType(MiscType.S_ROCK_CUTTER)) {
+                } else if (clubType.hasFlag(MiscTypeFlag.S_ROCK_CUTTER)) {
                     damage += Compute.d6(3);
-                } else if (clubType.hasSubType(MiscType.S_WRECKING_BALL)) {
+                } else if (clubType.hasFlag(MiscTypeFlag.S_WRECKING_BALL)) {
                     damage += Compute.d6(4);
                 }
             }
@@ -28521,13 +28597,54 @@ public class TWGameManager extends AbstractGameManager {
         Coords targetCoords = entity.getPosition();
 
         if (entity instanceof Mek || (entity.isAero() && !entity.isAirborne())) {
-            // okay, print the info
-            r = new Report(2027);
-            r.subject = entity.getId();
-            r.add(entity.getCrew().getName());
-            r.addDesc(entity);
-            r.indent(3);
-            vDesc.addElement(r);
+            boolean pilotsWillFlee = game.getOptions()
+                  .booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_EJECTED_PILOTS_FLEE);
+
+            // Build crew names list for multi-crew units
+            Crew crew = entity.getCrew();
+            int crewCount = crew.getSlotCount();
+            String crewNames;
+            String verb;
+            if (crewCount == 1) {
+                crewNames = crew.getName();
+                verb = "has";
+            } else {
+                StringBuilder names = new StringBuilder();
+                for (int i = 0; i < crewCount; i++) {
+                    if (i > 0) {
+                        if (i == crewCount - 1) {
+                            names.append(", and ");
+                        } else {
+                            names.append(", ");
+                        }
+                    }
+                    names.append(crew.getName(i));
+                }
+                crewNames = names.toString();
+                verb = "have";
+            }
+
+            // Generate appropriate report based on whether pilot will flee
+            if (pilotsWillFlee) {
+                // Combined abandon + flee message
+                r = new Report(5330);
+                r.subject = entity.getId();
+                r.add(crewNames);
+                r.add(verb);
+                r.addDesc(entity);
+                r.indent(3);
+                vDesc.addElement(r);
+            } else {
+                // Standard abandon message
+                r = new Report(2027);
+                r.subject = entity.getId();
+                r.add(crewNames);
+                r.add(verb);
+                r.addDesc(entity);
+                r.indent(3);
+                vDesc.addElement(r);
+            }
+
             // Don't make ill-equipped pilots abandon into vacuum
             PlanetaryConditions conditions = game.getPlanetaryConditions();
             if (conditions.getAtmosphere().isLighterThan(Atmosphere.THIN) && !entity.isAero()) {
@@ -28566,7 +28683,7 @@ public class TWGameManager extends AbstractGameManager {
                   entity.getPosition(),
                   targetCoords,
                   entity.getElevation()));
-            if (game.getOptions().booleanOption(OptionsConstants.ADVANCED_GROUND_MOVEMENT_EJECTED_PILOTS_FLEE)) {
+            if (pilotsWillFlee) {
                 game.removeEntity(pilot.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
                 send(createRemoveEntityPacket(pilot.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
@@ -28606,6 +28723,96 @@ public class TWGameManager extends AbstractGameManager {
         entity.getCrew().setEjected(true);
 
         return vDesc;
+    }
+
+    /**
+     * Processes pending Mek abandonments per TacOps:AR p.165. Called during End Phase to: 1. Execute abandonments that
+     * were announced in the previous End Phase 2. Cancel abandonments if the Mek is no longer prone and shutdown (Meks
+     * only)
+     */
+    void processUnitAbandonments() {
+        int currentRound = game.getRoundCount();
+        LOGGER.debug("processUnitAbandonments called in round {}", currentRound);
+
+        for (Entity entity : game.getEntitiesVector()) {
+            if (!entity.isPendingAbandon()) {
+                continue;
+            }
+
+            LOGGER.debug("Found entity {} with pendingAbandon=true, announcedRound={}",
+                  entity.getDisplayName(), entity.getAbandonmentAnnouncedRound());
+
+            // Per TW/TacOps, abandonment executes in the End Phase of the FOLLOWING turn
+            // Skip if we're still in the same round as the announcement
+            int announcedRound = entity.getAbandonmentAnnouncedRound();
+            if (announcedRound >= currentRound) {
+                // Still the same round or announcement round is in the future (shouldn't happen)
+                // Wait until next round
+                LOGGER.debug("Skipping {} - announced round {} >= current round {}",
+                      entity.getDisplayName(), announcedRound, currentRound);
+                continue;
+            }
+
+            // For Meks: check if still eligible (prone AND shutdown)
+            if (entity instanceof Mek mek) {
+                LOGGER.debug("Processing Mek abandonment for {} - prone={}, shutdown={}",
+                      mek.getDisplayName(), mek.isProne(), mek.isShutDown());
+
+                if (!mek.isProne() || !mek.isShutDown()) {
+                    // Cancellation report: 5326
+                    LOGGER.debug("Cancelling abandonment for {} - no longer prone+shutdown", mek.getDisplayName());
+                    Report cancelReport = new Report(5326);
+                    cancelReport.subject = entity.getId();
+                    cancelReport.addDesc(entity);
+                    addReport(cancelReport);
+                    entity.setPendingAbandon(false);
+                    entityUpdate(entity.getId());
+                    continue;
+                }
+            }
+            // For Tanks: no additional eligibility check needed
+
+            // Execute the abandonment
+            LOGGER.debug("Executing abandonment for {}", entity.getDisplayName());
+            Vector<Report> abandonReports = abandonEntity(entity);
+            if (!abandonReports.isEmpty()) {
+                for (Report abandonReport : abandonReports) {
+                    addReport(abandonReport);
+                }
+            }
+
+            // Clear the pending flag
+            entity.setPendingAbandon(false);
+            entityUpdate(entity.getId());
+            LOGGER.debug("Abandonment complete for {}", entity.getDisplayName());
+        }
+    }
+
+    /**
+     * Announces that a unit will abandon during the next End Phase. For Meks (TacOps:AR p.165): Must be prone and
+     * shutdown. For Vehicles (TacOps): Can be abandoned anytime.
+     *
+     * @param entity the unit announcing abandonment
+     *
+     * @return a Vector of reports for the game log
+     */
+    public Vector<Report> announceUnitAbandonment(Entity entity) {
+        Vector<Report> reports = new Vector<>();
+
+        int currentRound = game.getRoundCount();
+        entity.setPendingAbandon(true);
+        entity.setAbandonmentAnnouncedRound(currentRound);
+
+        LOGGER.info("Unit {} announces abandonment in round {}", entity.getDisplayName(), currentRound);
+
+        // Report 5325: announces abandonment
+        Report announceReport = new Report(5325);
+        announceReport.subject = entity.getId();
+        announceReport.addDesc(entity);
+        reports.add(announceReport);
+
+        entityUpdate(entity.getId());
+        return reports;
     }
 
     /**

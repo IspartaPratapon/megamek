@@ -64,11 +64,13 @@ import megamek.common.equipment.MiscMounted;
 import megamek.common.equipment.MiscType;
 import megamek.common.equipment.Mounted;
 import megamek.common.equipment.WeaponType;
+import megamek.common.equipment.enums.MiscTypeFlag;
 import megamek.common.exceptions.LocationFullException;
 import megamek.common.game.Game;
 import megamek.common.interfaces.ITechnology;
 import megamek.common.moves.MoveStep;
 import megamek.common.options.OptionsConstants;
+import megamek.common.planetaryConditions.Atmosphere;
 import megamek.common.planetaryConditions.PlanetaryConditions;
 import megamek.common.planetaryConditions.Wind;
 import megamek.common.rolls.PilotingRollData;
@@ -655,7 +657,8 @@ public class Infantry extends Entity {
         }
         EquipmentType armorKit = getArmorKit();
         return (armorKit == null) ||
-              !armorKit.hasSubType(MiscType.S_SPACE_SUIT | MiscType.S_XCT_VACUUM | MiscType.S_TOXIC_ATMOSPHERE);
+              !armorKit.hasAnyFlag(MiscTypeFlag.S_SPACE_SUIT, MiscTypeFlag.S_XCT_VACUUM,
+                    MiscTypeFlag.S_TOXIC_ATMOSPHERE);
     }
 
     @Override
@@ -956,6 +959,18 @@ public class Infantry extends Entity {
         return hasSpecialization(MOUNTAIN_TROOPS) ? 3 : 1;
     }
 
+    /**
+     * Returns the maximum downward elevation change this infantry can make. Infantry with glider wings can descend any
+     * number of levels safely (IO p.85).
+     */
+    @Override
+    public int getMaxElevationDown(int currElevation) {
+        if (canUseGliderWings() && hasAbility(OptionsConstants.MD_PL_GLIDER)) {
+            return Integer.MAX_VALUE;
+        }
+        return getMaxElevationChange();
+    }
+
     @Override
     public void applyDamage() {
         super.applyDamage();
@@ -1202,13 +1217,13 @@ public class Infantry extends Entity {
     public boolean doomedInExtremeTemp() {
         // If there is no game object, count any temperature protection.
         if (getArmorKit() != null) {
-            if (getArmorKit().hasSubType(MiscType.S_XCT_VACUUM)) {
+            if (getArmorKit().hasFlag(MiscTypeFlag.S_XCT_VACUUM)) {
                 return false;
-            } else if (getArmorKit().hasSubType(MiscType.S_COLD_WEATHER) &&
+            } else if (getArmorKit().hasFlag(MiscTypeFlag.S_COLD_WEATHER) &&
                   ((game == null) || game.getPlanetaryConditions().getTemperature() < -30)) {
                 return false;
             } else {
-                return !getArmorKit().hasSubType(MiscType.S_HOT_WEATHER) ||
+                return !getArmorKit().hasFlag(MiscTypeFlag.S_HOT_WEATHER) ||
                       ((game != null) && game.getPlanetaryConditions().getTemperature() <= 50);
             }
         }
@@ -1227,8 +1242,109 @@ public class Infantry extends Entity {
         }
 
         EntityMovementMode moveMode = getMovementMode();
-        return (List.of(EntityMovementMode.INF_JUMP, EntityMovementMode.HOVER, EntityMovementMode.VTOL)
-              .contains(moveMode) || hasSpecialization(PARATROOPS));
+        boolean hasInherentDropCapability = List.of(
+              EntityMovementMode.INF_JUMP,
+              EntityMovementMode.HOVER,
+              EntityMovementMode.VTOL).contains(moveMode);
+        boolean hasGliderWings = isConventionalInfantry()
+              && hasAbility(OptionsConstants.MD_PL_GLIDER)
+              && canUseGliderWings();
+
+        return hasInherentDropCapability || hasSpecialization(PARATROOPS) || hasGliderWings;
+    }
+
+    /**
+     * Returns true if this infantry unit can use glider wings in the current conditions.
+     * Glider wings cannot be used in vacuum or trace (very thin) atmospheres (IO p.85).
+     *
+     * @return true if glider wings are usable
+     */
+    public boolean canUseGliderWings() {
+        if (game == null) {
+            return true; // Allow if no game context
+        }
+        Atmosphere atmosphere = game.getPlanetaryConditions().getAtmosphere();
+        // Glider wings require at least THIN atmosphere (vacuum and trace are too thin)
+        return !atmosphere.isLighterThan(Atmosphere.THIN);
+    }
+
+    /**
+     * Returns true if this infantry unit is protected from fall damage.
+     * Glider wings protect against damage from falls, whether from walking off
+     * terrain 2+ levels high (including buildings) or by displacement (IO p.85).
+     * Only conventional infantry can use glider wings.
+     *
+     * @return true if protected from fall damage
+     */
+    public boolean isProtectedFromFallDamage() {
+        return isConventionalInfantry()
+              && hasAbility(OptionsConstants.MD_PL_GLIDER)
+              && canUseGliderWings();
+    }
+
+    /**
+     * Returns true if this infantry unit can exit a VTOL using glider wings. Per IO p.85, glider wings give a soldier
+     * the ability to leave a VTOL during movement as if the soldier were jump infantry.
+     *
+     * @return true if this infantry can exit a VTOL using glider wings
+     */
+    public boolean canExitVTOLWithGliderWings() {
+        return isConventionalInfantry()
+              && hasAbility(OptionsConstants.MD_PL_GLIDER)
+              && canUseGliderWings();
+    }
+
+    /**
+     * Returns true if both glider wings and powered flight wings are enabled.
+     * Per IO p.85, these are mutually exclusive - a trooper cannot have both.
+     *
+     * @return true if invalid configuration (both wing types enabled)
+     */
+    public boolean hasInvalidWingsConfiguration() {
+        return hasAbility(OptionsConstants.MD_PL_GLIDER)
+              && hasAbility(OptionsConstants.MD_PL_FLIGHT);
+    }
+
+    /**
+     * Returns true if glider wings are installed on non-foot infantry. Per IO p.85 and confirmed by the rules team,
+     * glider wings can only be used by foot infantry - motorized, mechanized, and beast-mounted infantry cannot use
+     * them.
+     *
+     * @return true if invalid configuration (glider wings on non-foot infantry)
+     */
+    public boolean hasGliderWingsOnInvalidInfantryType() {
+        if (!hasAbility(OptionsConstants.MD_PL_GLIDER)) {
+            return false;
+        }
+        return isMechanized() || getMovementMode().isMotorizedInfantry() || (getMount() != null);
+    }
+
+    /**
+     * Returns the maximum number of extraneous limb pairs allowed.
+     * Per IO p.85, if glider wings are installed, only one pair of extraneous
+     * limbs is allowed (instead of the normal two pairs).
+     *
+     * @return 1 if glider wings are installed, 2 otherwise
+     */
+    public int getMaxExtraneousLimbPairs() {
+        if (hasAbility(OptionsConstants.MD_PL_GLIDER)) {
+            return 1;
+        }
+        return 2;
+    }
+
+    /**
+     * Returns true if the current extraneous limb configuration exceeds the allowed maximum.
+     * Per IO p.85, if glider wings are installed, only one pair is allowed.
+     *
+     * @return true if invalid configuration (too many extraneous limb pairs)
+     */
+    public boolean hasExcessiveExtraneousLimbs() {
+        if (!hasAbility(OptionsConstants.MD_PL_GLIDER)) {
+            return false;
+        }
+        // With glider wings, only 1 pair allowed - pair 2 must be empty
+        return hasExtraneousPair2();
     }
 
     @Override
@@ -1344,12 +1460,12 @@ public class Infantry extends Entity {
             } catch (LocationFullException ex) {
                 logger.error("", ex);
             }
-            encumbering = (armorKit.getSubType() & MiscType.S_ENCUMBERING) != 0;
-            spaceSuit = (armorKit.getSubType() & MiscType.S_SPACE_SUIT) != 0;
-            dest = (armorKit.getSubType() & MiscType.S_DEST) != 0;
-            sneak_camo = (armorKit.getSubType() & MiscType.S_SNEAK_CAMO) != 0;
-            sneak_ir = (armorKit.getSubType() & MiscType.S_SNEAK_IR) != 0;
-            sneak_ecm = (armorKit.getSubType() & MiscType.S_SNEAK_ECM) != 0;
+            encumbering = armorKit.hasFlag(MiscTypeFlag.S_ENCUMBERING);
+            spaceSuit = armorKit.hasFlag(MiscTypeFlag.S_SPACE_SUIT);
+            dest = armorKit.hasFlag(MiscTypeFlag.S_DEST);
+            sneak_camo = armorKit.hasFlag(MiscTypeFlag.S_SNEAK_CAMO);
+            sneak_ir = armorKit.hasFlag(MiscTypeFlag.S_SNEAK_IR);
+            sneak_ecm = armorKit.hasFlag(MiscTypeFlag.S_SNEAK_ECM);
         }
         calcDamageDivisor();
     }
@@ -1475,7 +1591,7 @@ public class Infantry extends Entity {
             // Need to remove vibro shovels
             List<Mounted<?>> eqToRemove = new ArrayList<>();
             for (Mounted<?> eq : getEquipment()) {
-                if (eq.getType().hasFlag(MiscType.F_TOOLS) && eq.getType().hasSubType(MiscType.S_VIBRO_SHOVEL)) {
+                if (eq.getType().hasFlag(MiscType.F_TOOLS) && eq.getType().hasFlag(MiscTypeFlag.S_VIBRO_SHOVEL)) {
                     eqToRemove.add(eq);
                 }
             }
@@ -1501,7 +1617,7 @@ public class Infantry extends Entity {
             // Need to remove vibro shovels
             List<Mounted<?>> eqToRemove = new ArrayList<>();
             for (Mounted<?> eq : getEquipment()) {
-                if (eq.getType().hasFlag(MiscType.F_TOOLS) && eq.getType().hasSubType(MiscType.S_DEMOLITION_CHARGE)) {
+                if (eq.getType().hasFlag(MiscType.F_TOOLS) && eq.getType().hasFlag(MiscTypeFlag.S_DEMOLITION_CHARGE)) {
                     eqToRemove.add(eq);
                 }
             }
@@ -2477,11 +2593,8 @@ public class Infantry extends Entity {
         // Check for hostile environment armor kit
         EquipmentType armorKit = getArmorKit();
         if (armorKit != null) {
-            if (armorKit.hasSubType(MiscType.S_SPACE_SUIT)
-                  || armorKit.hasSubType(MiscType.S_XCT_VACUUM)
-                  || armorKit.hasSubType(MiscType.S_TOXIC_ATMOSPHERE)) {
-                return true;
-            }
+            return armorKit.hasAnyFlag(MiscTypeFlag.S_SPACE_SUIT, MiscTypeFlag.S_XCT_VACUUM,
+                  MiscTypeFlag.S_TOXIC_ATMOSPHERE);
         }
 
         return false;
